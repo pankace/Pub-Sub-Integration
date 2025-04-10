@@ -1,0 +1,132 @@
+name: Deploy Sentiment Analysis Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Allows manual triggering
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+
+jobs:
+  deploy:
+    name: Deploy to Google Cloud
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Needed for Google auth
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r functions/pubsub-receiver/requirements.txt
+          pip install -r functions/pubsub-positive-analyzer/requirements.txt
+          pip install -r functions/pubsub-negative-analyzer/requirements.txt
+          pip install pytest
+
+      - name: Run tests
+        run: pytest tests/
+
+      - name: Google Auth
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          # Alternatively, use Workload Identity Federation:
+          # workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          # service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Create Pub/Sub topic
+        run: |
+          # Check if topic exists
+          if ! gcloud pubsub topics describe feedback-topic --project=$PROJECT_ID >/dev/null 2>&1; then
+            gcloud pubsub topics create feedback-topic --project=$PROJECT_ID
+          fi
+
+      - name: Create Pub/Sub subscriptions
+        run: |
+          # Create positive subscription
+          if ! gcloud pubsub subscriptions describe positive-sub --project=$PROJECT_ID >/dev/null 2>&1; then
+            gcloud pubsub subscriptions create positive-sub --topic=feedback-topic --project=$PROJECT_ID
+          fi
+
+          # Create negative subscription
+          if ! gcloud pubsub subscriptions describe negative-sub --project=$PROJECT_ID >/dev/null 2>&1; then
+            gcloud pubsub subscriptions create negative-sub --topic=feedback-topic --project=$PROJECT_ID
+          fi
+
+      - name: Create BigQuery dataset and table
+        run: |
+          # Check if dataset exists
+          if ! bq ls --dataset --project_id=$PROJECT_ID | grep -q feedback_dataset; then
+            bq mk --dataset --location=US $PROJECT_ID:feedback_dataset
+          fi
+
+          # Create table (this will create or update)
+          bq mk --table --schema 'user_id:STRING,message:STRING' $PROJECT_ID:feedback_dataset.feedback_table
+
+      - name: Create Secret Manager secret for Slack
+        run: |
+          # Check if secret exists
+          if ! gcloud secrets describe slacktoken --project=$PROJECT_ID >/dev/null 2>&1; then
+            echo "Creating slacktoken secret"
+            gcloud secrets create slacktoken --project=$PROJECT_ID
+          fi
+          
+          # Add new version with the token
+          echo "${{ secrets.SLACK_TOKEN }}" | gcloud secrets versions add slacktoken --data-file=- --project=$PROJECT_ID
+
+      - name: Deploy receiver function
+        run: |
+          gcloud functions deploy pubsub-receiver \
+            --project=$PROJECT_ID \
+            --region=$REGION \
+            --runtime=python39 \
+            --trigger-http \
+            --allow-unauthenticated \
+            --entry-point=receive_message \
+            --source=./functions/pubsub-receiver \
+            --set-env-vars=PUBSUB_TOPIC=feedback-topic
+
+      - name: Deploy positive analyzer function
+        run: |
+          gcloud functions deploy pubsub-positive-analyzer \
+            --project=$PROJECT_ID \
+            --region=$REGION \
+            --runtime=python39 \
+            --trigger-topic=feedback-topic \
+            --entry-point=analyze_sentiment \
+            --source=./functions/pubsub-positive-analyzer \
+            --set-env-vars=SLACK_CHANNEL=followup,SENTIMENT_THRESHOLD=0.25 \
+            --set-secrets=SLACK_TOKEN=slacktoken:latest
+
+      - name: Deploy negative analyzer function
+        run: |
+          gcloud functions deploy pubsub-negative-analyzer \
+            --project=$PROJECT_ID \
+            --region=$REGION \
+            --runtime=python39 \
+            --trigger-topic=feedback-topic \
+            --entry-point=analyze_sentiment \
+            --source=./functions/pubsub-negative-analyzer \
+            --set-env-vars=SLACK_CHANNEL=support,SENTIMENT_THRESHOLD=-0.25 \
+            --set-secrets=SLACK_TOKEN=slacktoken:latest
+
+      - name: Display deployment info
+        run: |
+          echo "Receiver function URL:"
+          gcloud functions describe pubsub-receiver --region=$REGION --project=$PROJECT_ID --format='value(httpsTrigger.url)'
