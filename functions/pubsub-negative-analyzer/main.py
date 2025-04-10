@@ -24,7 +24,7 @@ def analyze_sentiment(event, context):
 
 def send_slack_alert(user_id, message, score):
     slack_token = os.environ.get('SLACK_TOKEN')
-    slack_channel = '#support'
+    slack_channel = os.environ.get('SLACK_CHANNEL', '#support')  # Get from env, fallback to '#support'
     slack_message = {
         'channel': slack_channel,
         'text': f"Negative feedback from {user_id}: {message} (Score: {score})"

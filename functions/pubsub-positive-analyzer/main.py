@@ -26,6 +26,7 @@ def analyze_sentiment(event, context):
 
 def send_slack_alert(user_id, message, channel):
     slack_token = os.environ.get('SLACK_TOKEN')
+    slack_channel = os.environ.get('SLACK_CHANNEL', 'followup')  # Get from env, fallback to 'followup'
     slack_url = f'https://slack.com/api/chat.postMessage'
     
     headers = {
@@ -34,7 +35,7 @@ def send_slack_alert(user_id, message, channel):
     }
 
     payload = {
-        'channel': f'#{channel}',
+        'channel': slack_channel,  # Use the variable directly (already includes # if needed)
         'text': f'User {user_id} sent a positive message: "{message}"'
     }
 

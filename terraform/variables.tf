@@ -31,3 +31,16 @@ variable "negative_subscription" {
   type        = string
   default     = "negative-sub"
 }
+
+
+variable "positive_channel_id" {
+  description = "Slack channel ID for positive sentiment alerts"
+  type        = string
+  default     = "C08KN71G5S7"
+}
+
+variable "negative_channel_id" {
+  description = "Slack channel ID for negative sentiment alerts"
+  type        = string
+  default     = "CH83QLHLY"
+}
