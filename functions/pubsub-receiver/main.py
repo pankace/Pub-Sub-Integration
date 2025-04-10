@@ -7,15 +7,7 @@ from google.cloud import pubsub_v1
 
 @functions_framework.http
 def receive_message(request):
-    """HTTP Cloud Function that receives feedback messages.
-    Args:
-        request (flask.Request): The request object.
-        <https://flask.palletsprojects.com/en/1.1.x/api/#incoming-request-data>
-    Returns:
-        The response text, or any set of values that can be turned into a
-        Response object using `make_response`
-        <https://flask.palletsprojects.com/en/1.1.x/api/#flask.make_response>.
-    """
+    """HTTP Cloud Function that receives feedback messages."""
     try:
         request_json = request.get_json(silent=True)
         
@@ -38,7 +30,17 @@ def publish_to_topic(user_id, message):
     """Publishes a message to the Pub/Sub topic."""
     publisher = pubsub_v1.PublisherClient()
     topic_name = os.environ.get('PUBSUB_TOPIC', 'feedback-topic')
-    project_id = os.environ.get('GOOGLE_CLOUD_PROJECT')
+    
+    # Get project ID from environment or use a hardcoded value
+    project_id = os.environ.get('GOOGLE_CLOUD_PROJECT') or os.environ.get('PROJECT_ID')
+    
+    if not project_id:
+        import google.auth
+        # Try to get project ID from default credentials
+        _, project_id = google.auth.default()
+    
+    if not project_id:
+        return "Error: Unable to determine project ID. Please set PROJECT_ID environment variable.", 500
     
     topic_path = publisher.topic_path(project_id, topic_name)
     

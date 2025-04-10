@@ -182,8 +182,9 @@ jobs:
             --allow-unauthenticated \
             --entry-point=receive_message \
             --source=./functions/pubsub-receiver \
-            --set-env-vars=PUBSUB_TOPIC=feedback-topic \
+            --set-env-vars=PUBSUB_TOPIC=feedback-topic,PROJECT_ID=$PROJECT_ID \
             --service-account=sentiment-functions-sa@${PROJECT_ID}.iam.gserviceaccount.com
+            
       - name: Deploy positive analyzer function
         run: |
           gcloud functions deploy pubsub-positive-analyzer \
