@@ -1,36 +1,70 @@
-from google.cloud import pubsub_v1
-from google.cloud import language_v1
-import json
 import os
-import requests
+import json
 import base64
+import functions_framework
+import requests
+from google.cloud import language_v1
 
-def analyze_sentiment(event, context):
-    # Decode the Pub/Sub message
-    pubsub_message = base64.b64decode(event['data']).decode('utf-8')
-    message_data = json.loads(pubsub_message)
+@functions_framework.cloud_event
+def analyze_sentiment(cloud_event):
+    """Triggered from a message on a Cloud Pub/Sub topic.
+    Args:
+        cloud_event (CloudEvent): Event payload.
+    """
+    # Get the message data
+    message = cloud_event.data["message"]
+    
+    # Decode the data from the Pub/Sub message
+    if "data" in message:
+        pubsub_data = base64.b64decode(message["data"]).decode("utf-8")
+        data = json.loads(pubsub_data)
+        
+        user_id = data.get("user_id")
+        message_text = data.get("message")
+        
+        if user_id and message_text:
+            sentiment = analyze_text_sentiment(message_text)
+            threshold = float(os.environ.get('SENTIMENT_THRESHOLD', '-0.25'))
+            
+            if sentiment and sentiment.score < threshold:
+                send_slack_alert(user_id, message_text, sentiment.score)
+                return "Negative sentiment detected and slack alert sent"
+            
+    return "No action taken"
 
-    user_id = message_data['user_id']
-    message = message_data['message']
-
-    # Analyze sentiment
+def analyze_text_sentiment(text):
+    """Analyzes the sentiment of the text."""
     client = language_v1.LanguageServiceClient()
-    document = language_v1.Document(content=message, type_=language_v1.Document.Type.PLAIN_TEXT)
-    sentiment = client.analyze_sentiment(request={'document': document}).document_sentiment
-
-    # Check sentiment score
-    if sentiment.score < -0.25:
-        send_slack_alert(user_id, message, sentiment.score)
+    document = language_v1.Document(content=text, type_=language_v1.Document.Type.PLAIN_TEXT)
+    
+    try:
+        sentiment = client.analyze_sentiment(request={'document': document}).document_sentiment
+        return sentiment
+    except Exception as e:
+        print(f"Error analyzing sentiment: {e}")
+        return None
 
 def send_slack_alert(user_id, message, score):
+    """Sends an alert to Slack channel."""
     slack_token = os.environ.get('SLACK_TOKEN')
-    slack_channel = os.environ.get('SLACK_CHANNEL', '#support')  # Get from env, fallback to '#support'
-    slack_message = {
-        'channel': slack_channel,
-        'text': f"Negative feedback from {user_id}: {message} (Score: {score})"
-    }
+    slack_channel = os.environ.get('SLACK_CHANNEL', '#support')
+    
+    slack_url = 'https://slack.com/api/chat.postMessage'
+    
     headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {slack_token}'
+        'Authorization': f'Bearer {slack_token}',
+        'Content-Type': 'application/json'
     }
-    requests.post('https://slack.com/api/chat.postMessage', headers=headers, json=slack_message)
+    
+    payload = {
+        'channel': slack_channel,
+        'text': f'Negative feedback from {user_id}: "{message}" (Score: {score:.2f})'
+    }
+    
+    try:
+        response = requests.post(slack_url, headers=headers, json=payload)
+        response.raise_for_status()
+        return "Slack alert sent successfully"
+    except Exception as e:
+        print(f"Error sending Slack alert: {e}")
+        return None

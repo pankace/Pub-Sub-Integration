@@ -1,28 +1,57 @@
-from flask import Flask, request, jsonify
-from google.cloud import pubsub_v1
 import os
+import json
+import base64
+import functions_framework
+from flask import jsonify
+from google.cloud import pubsub_v1
 
-app = Flask(__name__)
-
-# Initialize Pub/Sub client
-publisher = pubsub_v1.PublisherClient()
-topic_name = 'projects/{project_id}/topics/feedback-topic'.format(project_id=os.environ['GCP_PROJECT_ID'])
-
-@app.route('/receiver', methods=['POST'])
-def receiver():
-    data = request.get_json()
+@functions_framework.http
+def receive_message(request):
+    """HTTP Cloud Function that receives feedback messages.
+    Args:
+        request (flask.Request): The request object.
+        <https://flask.palletsprojects.com/en/1.1.x/api/#incoming-request-data>
+    Returns:
+        The response text, or any set of values that can be turned into a
+        Response object using `make_response`
+        <https://flask.palletsprojects.com/en/1.1.x/api/#flask.make_response>.
+    """
+    try:
+        request_json = request.get_json(silent=True)
+        
+        if not request_json:
+            return jsonify({'error': 'No JSON data provided'}), 400
+        
+        user_id = request_json.get('user_id')
+        message = request_json.get('message')
+        
+        if not user_id or not message:
+            return jsonify({'error': 'Missing required fields: user_id or message'}), 400
+        
+        result = publish_to_topic(user_id, message)
+        return jsonify({'success': True, 'result': result})
     
-    if 'user_id' not in data or 'message' not in data:
-        return jsonify({'error': 'Invalid input'}), 400
+    except Exception as e:
+        return jsonify({'error': f'Error processing request: {str(e)}'}), 500
 
-    user_id = data['user_id']
-    message = data['message']
-
-    # Publish message to Pub/Sub
-    future = publisher.publish(topic_name, data=message.encode('utf-8'), user_id=user_id.encode('utf-8'))
-    future.result()  # Wait for the publish to succeed
-
-    return jsonify({'status': 'Message published'}), 200
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
+def publish_to_topic(user_id, message):
+    """Publishes a message to the Pub/Sub topic."""
+    publisher = pubsub_v1.PublisherClient()
+    topic_name = os.environ.get('PUBSUB_TOPIC', 'feedback-topic')
+    project_id = os.environ.get('GOOGLE_CLOUD_PROJECT')
+    
+    topic_path = publisher.topic_path(project_id, topic_name)
+    
+    data = {
+        'user_id': user_id,
+        'message': message
+    }
+    
+    data_bytes = json.dumps(data).encode('utf-8')
+    
+    try:
+        future = publisher.publish(topic_path, data=data_bytes)
+        message_id = future.result()
+        return f"Message published with ID: {message_id}"
+    except Exception as e:
+        return f"Error publishing message: {e}", 500

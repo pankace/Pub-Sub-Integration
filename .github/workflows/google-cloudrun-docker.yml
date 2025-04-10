@@ -176,6 +176,7 @@ jobs:
           gcloud functions deploy pubsub-receiver \
             --project=$PROJECT_ID \
             --region=$REGION \
+            --gen2 \
             --runtime=python39 \
             --trigger-http \
             --allow-unauthenticated \
@@ -183,12 +184,12 @@ jobs:
             --source=./functions/pubsub-receiver \
             --set-env-vars=PUBSUB_TOPIC=feedback-topic \
             --service-account=sentiment-functions-sa@${PROJECT_ID}.iam.gserviceaccount.com
-
       - name: Deploy positive analyzer function
         run: |
           gcloud functions deploy pubsub-positive-analyzer \
             --project=$PROJECT_ID \
             --region=$REGION \
+            --gen2 \
             --runtime=python39 \
             --trigger-topic=feedback-topic \
             --entry-point=analyze_sentiment \
@@ -202,6 +203,7 @@ jobs:
           gcloud functions deploy pubsub-negative-analyzer \
             --project=$PROJECT_ID \
             --region=$REGION \
+            --gen2 \
             --runtime=python39 \
             --trigger-topic=feedback-topic \
             --entry-point=analyze_sentiment \
