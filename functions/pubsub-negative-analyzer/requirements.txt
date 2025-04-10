@@ -1,0 +1,4 @@
+Flask
+google-cloud-pubsub
+google-cloud-language
+slack_sdk
