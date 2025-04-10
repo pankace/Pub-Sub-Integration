@@ -3,6 +3,7 @@ from google.cloud import language_v1
 import os
 import json
 import requests
+import base64
 
 def analyze_sentiment(event, context):
     # Decode the Pub/Sub message

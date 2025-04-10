@@ -9,6 +9,8 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: us-central1
+  POSITIVE_CHANNEL_ID: ${{ secrets.POSITIVE_CHANNEL_ID }}
+  NEGATIVE_CHANNEL_ID: ${{ secrets.POSITIVE_CHANNEL_ID }}
 
 jobs:
   deploy:
@@ -111,7 +113,7 @@ jobs:
             --trigger-topic=feedback-topic \
             --entry-point=analyze_sentiment \
             --source=./functions/pubsub-positive-analyzer \
-            --set-env-vars=SLACK_CHANNEL=followup,SENTIMENT_THRESHOLD=0.25 \
+            --set-env-vars=SLACK_CHANNEL=$POSITIVE_CHANNEL_ID,SENTIMENT_THRESHOLD=0.25 \
             --set-secrets=SLACK_TOKEN=slacktoken:latest
 
       - name: Deploy negative analyzer function
@@ -123,7 +125,7 @@ jobs:
             --trigger-topic=feedback-topic \
             --entry-point=analyze_sentiment \
             --source=./functions/pubsub-negative-analyzer \
-            --set-env-vars=SLACK_CHANNEL=support,SENTIMENT_THRESHOLD=-0.25 \
+            --set-env-vars=SLACK_CHANNEL=$NEGATIVE_CHANNEL_ID,SENTIMENT_THRESHOLD=-0.25 \
             --set-secrets=SLACK_TOKEN=slacktoken:latest
 
       - name: Display deployment info
